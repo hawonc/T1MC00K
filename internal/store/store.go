@@ -23,6 +23,9 @@ type Recipe struct {
 	ID          int64               `json:"id"`
 	Title       string              `json:"title"`
 	Tags        []string            `json:"tags"`
+	Times       parser.Times        `json:"times"`
+	Servings    string              `json:"servings,omitempty"`
+	Provenance  string              `json:"provenance,omitempty"`
 	Ingredients []parser.Ingredient `json:"ingredients"`
 	Steps       []string            `json:"steps"`
 	Source      string              `json:"source"`
@@ -49,6 +52,9 @@ CREATE TABLE IF NOT EXISTS recipes (
 	id          INTEGER PRIMARY KEY,
 	title       TEXT NOT NULL,
 	tags        TEXT NOT NULL DEFAULT '[]',      -- JSON array of tag strings
+	times       TEXT NOT NULL DEFAULT '{}',      -- JSON: {total, prep, cook}
+	servings    TEXT NOT NULL DEFAULT '',
+	provenance  TEXT NOT NULL DEFAULT '',        -- ">> source:" (book, family, URL…)
 	ingredients TEXT NOT NULL DEFAULT '[]',      -- JSON array of parser.Ingredient
 	steps       TEXT NOT NULL DEFAULT '[]',      -- JSON array of step strings
 	source      TEXT NOT NULL,
@@ -93,7 +99,33 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+// migrate adds columns introduced after a database was first created, so
+// older dev databases keep working without a manual rebuild.
+func migrate(db *sql.DB) error {
+	add := []struct{ col, ddl string }{
+		{"times", `ALTER TABLE recipes ADD COLUMN times TEXT NOT NULL DEFAULT '{}'`},
+		{"servings", `ALTER TABLE recipes ADD COLUMN servings TEXT NOT NULL DEFAULT ''`},
+		{"provenance", `ALTER TABLE recipes ADD COLUMN provenance TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, m := range add {
+		var name string
+		err := db.QueryRow(`SELECT name FROM pragma_table_info('recipes') WHERE name = ?`, m.col).Scan(&name)
+		if errors.Is(err, sql.ErrNoRows) {
+			if _, err := db.Exec(m.ddl); err != nil {
+				return fmt.Errorf("add column %s: %w", m.col, err)
+			}
+		} else if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close closes the underlying database.
@@ -103,6 +135,7 @@ func (s *Store) Close() error { return s.db.Close() }
 // search index and tag tables.
 func (s *Store) SaveRecipe(r *parser.Recipe) (int64, error) {
 	tagsJSON, _ := json.Marshal(r.Tags)
+	timesJSON, _ := json.Marshal(r.Times)
 	ingJSON, _ := json.Marshal(r.Ingredients)
 	stepsJSON, _ := json.Marshal(r.Steps)
 
@@ -113,9 +146,9 @@ func (s *Store) SaveRecipe(r *parser.Recipe) (int64, error) {
 	defer tx.Rollback()
 
 	res, err := tx.Exec(`
-		INSERT INTO recipes (title, tags, ingredients, steps, source)
-		VALUES (?, ?, ?, ?, ?)`,
-		r.Title, string(tagsJSON), string(ingJSON), string(stepsJSON), r.Source)
+		INSERT INTO recipes (title, tags, times, servings, provenance, ingredients, steps, source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Title, string(tagsJSON), string(timesJSON), r.Servings, r.Provenance, string(ingJSON), string(stepsJSON), r.Source)
 	if err != nil {
 		return 0, fmt.Errorf("insert recipe: %w", err)
 	}
@@ -139,7 +172,7 @@ func (s *Store) SaveRecipe(r *parser.Recipe) (int64, error) {
 
 // GetRecipe returns the full recipe with the given id.
 func (s *Store) GetRecipe(id int64) (*Recipe, error) {
-	row := s.db.QueryRow(`SELECT id, title, tags, ingredients, steps, source, created_at, updated_at
+	row := s.db.QueryRow(`SELECT id, title, tags, times, servings, provenance, ingredients, steps, source, created_at, updated_at
 		FROM recipes WHERE id = ?`, id)
 	r, err := scanRecipe(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -309,11 +342,12 @@ type rowScanner interface{ Scan(dest ...any) error }
 
 func scanRecipe(scan func(dest ...any) error) (*Recipe, error) {
 	var r Recipe
-	var tagsJSON, ingJSON, stepsJSON, created, updated string
-	if err := scan(&r.ID, &r.Title, &tagsJSON, &ingJSON, &stepsJSON, &r.Source, &created, &updated); err != nil {
+	var tagsJSON, timesJSON, ingJSON, stepsJSON, created, updated string
+	if err := scan(&r.ID, &r.Title, &tagsJSON, &timesJSON, &r.Servings, &r.Provenance, &ingJSON, &stepsJSON, &r.Source, &created, &updated); err != nil {
 		return nil, err
 	}
 	json.Unmarshal([]byte(tagsJSON), &r.Tags)
+	json.Unmarshal([]byte(timesJSON), &r.Times)
 	json.Unmarshal([]byte(ingJSON), &r.Ingredients)
 	json.Unmarshal([]byte(stepsJSON), &r.Steps)
 	r.CreatedAt = parseTime(created)

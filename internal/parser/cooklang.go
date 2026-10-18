@@ -24,13 +24,24 @@ type Ingredient struct {
 	Note   string `json:"note,omitempty"`
 }
 
+// Times holds the cooking times extracted from metadata such as
+// ">> time required: 30 mins" or ">> cook time: 20 mins".
+type Times struct {
+	Total string `json:"total,omitempty"` // ">> time required:" / ">> total time:"
+	Prep  string `json:"prep,omitempty"`  // ">> prep time:" / ">> preparation time:"
+	Cook  string `json:"cook,omitempty"`  // ">> cook time:" / ">> cooking time:"
+}
+
 // Recipe is the result of parsing a .cook file.
 type Recipe struct {
 	Title       string            `json:"title"`
 	Tags        []string          `json:"tags"`
+	Times       Times             `json:"times"`
+	Servings    string            `json:"servings,omitempty"`   // ">> servings:" / ">> serves:"
+	Provenance  string            `json:"provenance,omitempty"` // ">> source:" (book, family, URL…)
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	Ingredients []Ingredient      `json:"ingredients"`
-	Steps       []string          `json:"steps"`
+	Steps       []string          `json:"steps"`  // rendered readable; Source keeps the raw text
 	Source      string            `json:"source"` // the original .cook content
 }
 
@@ -95,7 +106,7 @@ func Parse(src, fallbackTitle string) (*Recipe, error) {
 			flush()
 			continue
 		}
-		para = append(para, line)
+		para = append(para, RenderStep(line))
 	}
 	flush()
 
@@ -117,7 +128,140 @@ func Parse(src, fallbackTitle string) (*Recipe, error) {
 		}
 	}
 
+	// 5. Pull structured sub-text (times, servings, provenance) out of
+	//    metadata. Unknown keys stay available in Metadata.
+	r.Times.Total = firstMetadata(r.Metadata, "time required", "total time")
+	r.Times.Prep = firstMetadata(r.Metadata, "prep time", "preparation time")
+	r.Times.Cook = firstMetadata(r.Metadata, "cook time", "cooking time")
+	r.Servings = firstMetadata(r.Metadata, "servings", "serves")
+	r.Provenance = r.Metadata["source"]
+
 	return r, nil
+}
+
+// firstMetadata returns the first non-empty value among the keys.
+func firstMetadata(md map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(md[k]); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// RenderStep converts inline CookLang markup in a step to readable plain
+// text:
+//
+//	@rice noodles{200%g}   -> rice noodles (200 g)
+//	@peanuts(crushed)      -> peanuts (crushed)
+//	#wok                   -> wok
+//	~{25%minutes}          -> 25 minutes
+//	\@literal              -> @literal
+//
+// Unknown constructs are passed through unchanged.
+func RenderStep(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch c {
+		case '\\': // escaped markup character
+			if i+1 < len(s) && strings.ContainsRune("@#~\\", rune(s[i+1])) {
+				b.WriteByte(s[i+1])
+				i += 2
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		case '@', '#', '~':
+			rest, consumed := renderNode(s[i:])
+			b.WriteString(rest)
+			i += consumed
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
+}
+
+// renderNode renders the markup node at the start of s (which must begin
+// with '@', '#' or '~') and returns the rendered text plus bytes consumed.
+func renderNode(s string) (string, int) {
+	kind := s[0]
+
+	// A bare name is a single word: multi-word names must be delimited by
+	// {} or () per the CookLang spec, so a bare name stops at whitespace or
+	// punctuation. Words are only absorbed into the name if a '{' or '('
+	// terminates the whole run (e.g. "@olive oil{2%tbsp}").
+	isWordByte := func(c byte) bool {
+		return !strings.ContainsRune("{}() \t,.;:!?\"'", rune(c))
+	}
+	j := 1
+	for j < len(s) && isWordByte(s[j]) {
+		j++
+	}
+	for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
+		k := j + 1
+		for k < len(s) && (isWordByte(s[k]) || s[k] == ' ') {
+			k++
+		}
+		if k < len(s) && (s[k] == '{' || s[k] == '(') {
+			j = k // the word run is part of the name
+		} else {
+			break
+		}
+	}
+	name := strings.TrimSpace(s[1:j])
+	consumed := j
+
+	var qty, unit, note string
+	// optional {quantity%unit}
+	if consumed < len(s) && s[consumed] == '{' {
+		if end := strings.IndexByte(s[consumed:], '}'); end >= 0 {
+			q := s[consumed+1 : consumed+end]
+			if amt, u, ok := strings.Cut(q, "%"); ok {
+				qty, unit = strings.TrimSpace(amt), strings.TrimSpace(u)
+			} else {
+				qty = strings.TrimSpace(q)
+			}
+			consumed += end + 1
+		}
+	}
+	// optional (note)
+	if consumed < len(s) && s[consumed] == '(' {
+		if end := strings.IndexByte(s[consumed:], ')'); end >= 0 {
+			note = strings.TrimSpace(s[consumed+1 : consumed+end])
+			consumed += end + 1
+		}
+	}
+
+	switch kind {
+	case '~': // timer: ~name{qty%unit} -> "qty unit"
+		var parts []string
+		for _, p := range []string{qty, unit} {
+			if p != "" {
+				parts = append(parts, p)
+			}
+		}
+		if len(parts) == 0 {
+			return name, consumed // degenerate timer; keep the name
+		}
+		return strings.Join(parts, " "), consumed
+	case '#': // cookware: #wok -> "wok"
+		return name, consumed
+	default: // ingredient: @name{qty%unit}(note) -> "name (qty unit, note)"
+		var paren []string
+		if qty != "" {
+			paren = append(paren, strings.TrimSpace(qty+" "+unit))
+		}
+		if note != "" {
+			paren = append(paren, note)
+		}
+		if len(paren) == 0 {
+			return name, consumed
+		}
+		return name + " (" + strings.Join(paren, ", ") + ")", consumed
+	}
 }
 
 // parseIngredient parses the text after the leading '@' of an ingredient

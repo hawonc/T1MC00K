@@ -60,6 +60,7 @@
     }
     footer { padding: 25px; text-align: center; }
     .helptext { color: #aaa; font-size: small; }
+    p.byline { font-style: italic; }
     ul.blog-posts { list-style-type: none; padding: unset; }
     ul.blog-posts li { display: flex; margin-bottom: 10px; }
     ul.blog-posts li span { flex: 0 0 130px; }
@@ -193,10 +194,22 @@ async function showRecipe(id) {
         ${i.note ? `<span class="amt">(${esc(i.note)})</span>` : ''}
       </li>`).join('');
     const steps = r.steps.map(s => `<li>${esc(s)}</li>`).join('');
+    const bits = [];
+    if (r.times?.prep) bits.push('prep ' + r.times.prep);
+    if (r.times?.cook) bits.push('cook ' + r.times.cook);
+    if (r.times?.total) bits.push(r.times.total);
+    if (r.servings) bits.push('serves ' + esc(r.servings));
+    const prov = r.provenance || '';
+    const provHtml = /^https?:\/\//.test(prov)
+      ? `from <a href="${esc(prov)}" target="_blank" rel="noopener">${esc(new URL(prov).hostname)}</a>`
+      : (prov ? 'from ' + esc(prov) : '');
+    if (provHtml) bits.push(provHtml);
+    const byline = bits.length ? `<p class="byline">${bits.join(' &middot; ')}</p>` : '';
     content.innerHTML = `
       <p class="actions"><a href="#" id="back">&larr; All recipes</a>
         <a href="#" id="del">delete</a></p>
       <h1>${esc(r.title)}</h1>
+      ${byline}
       <div class="tagrow">${tagLinks(r.tags)}</div>
       ${r.ingredients.length ? `<h3>Ingredients</h3><ul class="ingredients">${ing}</ul>` : ''}
       ${r.steps.length ? `<h3>Method</h3><ol class="steps">${steps}</ol>` : ''}

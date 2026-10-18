@@ -35,6 +35,20 @@ func TestParse(t *testing.T) {
 		t.Errorf("metadata time required = %q", r.Metadata["time required"])
 	}
 
+	// structured sub-text
+	if r.Times.Total != "30 mins" {
+		t.Errorf("times.total = %q, want %q", r.Times.Total, "30 mins")
+	}
+	if r.Times.Prep != "" || r.Times.Cook != "" {
+		t.Errorf("unexpected extra times: %+v", r.Times)
+	}
+	if r.Servings != "" {
+		t.Errorf("servings = %q, want empty", r.Servings)
+	}
+	if r.Provenance != "" {
+		t.Errorf("provenance = %q, want empty", r.Provenance)
+	}
+
 	if len(r.Ingredients) != 4 {
 		t.Fatalf("got %d ingredients, want 4: %+v", len(r.Ingredients), r.Ingredients)
 	}
@@ -61,6 +75,56 @@ func TestParse(t *testing.T) {
 	}
 	if !strings.Contains(r.Steps[1], "wok") {
 		t.Errorf("second step missing text: %q", r.Steps[1])
+	}
+	// inline markup should be rendered readable
+	if !strings.Contains(r.Steps[1], "2 minutes") || strings.Contains(r.Steps[1], "~{") {
+		t.Errorf("timer not rendered: %q", r.Steps[1])
+	}
+}
+
+func TestRenderStep(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Add @salt and pepper to taste.", "Add salt and pepper to taste."},
+		{"Add @olive oil{2%tbsp} and stir.", "Add olive oil (2 tbsp) and stir."},
+		{"Top with @peanuts(crushed) and @lime wedges.",
+			"Top with peanuts (crushed) and lime wedges."},
+		{"@ground black pepper{1%tsp} to finish", "ground black pepper (1 tsp) to finish"},
+		{"Fry in a #wok until golden.", "Fry in a wok until golden."},
+		{"Simmer for ~{25%minutes}.", "Simmer for 25 minutes."},
+		{"Bake for ~cake{40%minutes}.", "Bake for 40 minutes."},
+		{"Email me at \\@not-markup.", "Email me at @not-markup."},
+		{"Plain text stays put.", "Plain text stays put."},
+	}
+	for _, c := range cases {
+		if got := RenderStep(c.in); got != c.want {
+			t.Errorf("RenderStep(%q)\n  = %q\n  want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestTimesAndSubtext(t *testing.T) {
+	src := `>> title: X
+>> prep time: 10 mins
+>> cook time: 45 mins
+>> servings: 4
+>> source: https://example.com/recipe
+
+@flour{200%g}
+
+Mix.
+`
+	r, err := Parse(src, "")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if r.Times.Prep != "10 mins" || r.Times.Cook != "45 mins" || r.Times.Total != "" {
+		t.Errorf("times = %+v", r.Times)
+	}
+	if r.Servings != "4" {
+		t.Errorf("servings = %q", r.Servings)
+	}
+	if r.Provenance != "https://example.com/recipe" {
+		t.Errorf("provenance = %q", r.Provenance)
 	}
 }
 
