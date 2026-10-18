@@ -15,8 +15,10 @@ const padThai = `>> title: Pad Thai
 @peanuts(roughly crushed)
 
 Soak the noodles. -- keep them firm
-[- they finish in the wak -]
+[- The noodles should be bendy but still firm -]
 Fry everything in a wok for ~{2%minutes}.
+
+Serve hot.
 `
 
 func TestParse(t *testing.T) {
@@ -42,12 +44,6 @@ func TestParse(t *testing.T) {
 	if r.Times.Prep != "" || r.Times.Cook != "" {
 		t.Errorf("unexpected extra times: %+v", r.Times)
 	}
-	if r.Servings != "" {
-		t.Errorf("servings = %q, want empty", r.Servings)
-	}
-	if r.Provenance != "" {
-		t.Errorf("provenance = %q, want empty", r.Provenance)
-	}
 
 	if len(r.Ingredients) != 4 {
 		t.Fatalf("got %d ingredients, want 4: %+v", len(r.Ingredients), r.Ingredients)
@@ -64,21 +60,25 @@ func TestParse(t *testing.T) {
 		}
 	}
 
+	// Two blocks: the comment lines belong to the first block and must
+	// surface as notes on that step, not as text.
 	if len(r.Steps) != 2 {
-		t.Fatalf("got %d steps, want 2: %q", len(r.Steps), r.Steps)
+		t.Fatalf("got %d steps, want 2: %+v", len(r.Steps), r.Steps)
 	}
-	if !strings.Contains(r.Steps[0], "Soak the noodles.") || strings.Contains(r.Steps[0], "keep them firm") {
-		t.Errorf("line comment not stripped: %q", r.Steps[0])
+	first := r.Steps[0]
+	if !strings.Contains(first.Text, "Soak the noodles.") ||
+		!strings.Contains(first.Text, "2 minutes") {
+		t.Errorf("first step text wrong: %q", first.Text)
 	}
-	if strings.Contains(strings.Join(r.Steps, "\n"), "they finish") {
-		t.Errorf("block comment not stripped: %q", r.Steps)
+	if strings.Contains(first.Text, "keep them firm") || strings.Contains(first.Text, "bendy") {
+		t.Errorf("note text leaked into step text: %q", first.Text)
 	}
-	if !strings.Contains(r.Steps[1], "wok") {
-		t.Errorf("second step missing text: %q", r.Steps[1])
+	wantNotes := []string{"keep them firm", "The noodles should be bendy but still firm"}
+	if strings.Join(first.Notes, "|") != strings.Join(wantNotes, "|") {
+		t.Errorf("notes = %v, want %v", first.Notes, wantNotes)
 	}
-	// inline markup should be rendered readable
-	if !strings.Contains(r.Steps[1], "2 minutes") || strings.Contains(r.Steps[1], "~{") {
-		t.Errorf("timer not rendered: %q", r.Steps[1])
+	if r.Steps[1].Text != "Serve hot." || len(r.Steps[1].Notes) != 0 {
+		t.Errorf("second step wrong: %+v", r.Steps[1])
 	}
 }
 
@@ -86,12 +86,12 @@ func TestRenderStep(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Add @salt and pepper to taste.", "Add salt and pepper to taste."},
 		{"Add @olive oil{2%tbsp} and stir.", "Add olive oil (2 tbsp) and stir."},
-		{"Top with @peanuts(crushed) and @lime wedges.",
-			"Top with peanuts (crushed) and lime wedges."},
+		{"Top with @peanuts(crushed) and @lime wedges.", "Top with peanuts (crushed) and lime wedges."},
 		{"@ground black pepper{1%tsp} to finish", "ground black pepper (1 tsp) to finish"},
 		{"Fry in a #wok until golden.", "Fry in a wok until golden."},
 		{"Simmer for ~{25%minutes}.", "Simmer for 25 minutes."},
 		{"Bake for ~cake{40%minutes}.", "Bake for 40 minutes."},
+		{"Now add the @?thyme.", "Now add the thyme."},
 		{"Email me at \\@not-markup.", "Email me at @not-markup."},
 		{"Plain text stays put.", "Plain text stays put."},
 	}
@@ -99,6 +99,72 @@ func TestRenderStep(t *testing.T) {
 		if got := RenderStep(c.in); got != c.want {
 			t.Errorf("RenderStep(%q)\n  = %q\n  want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestSectionsAndTextBlocks(t *testing.T) {
+	src := `>> title: X
+
+@flour{200%g}
+
+== Sauce ==
+
+Mix the sauce.
+
+> Let it rest for a bit, it tastes better.
+
+== Assembly ==
+
+Assemble and serve.
+`
+	r, err := Parse(src, "")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(r.Steps) != 3 {
+		t.Fatalf("got %d steps, want 3: %+v", len(r.Steps), r.Steps)
+	}
+	if r.Steps[0].Section != "Sauce" {
+		t.Errorf("step 0 section = %q", r.Steps[0].Section)
+	}
+	if !r.Steps[1].TextBlock || r.Steps[1].Text != "Let it rest for a bit, it tastes better." {
+		t.Errorf("text block wrong: %+v", r.Steps[1])
+	}
+	if r.Steps[2].Section != "Assembly" {
+		t.Errorf("step 2 section = %q", r.Steps[2].Section)
+	}
+}
+
+func TestSectionNeedsToEndOfLine(t *testing.T) {
+	// content after the closing '=' makes it a step, not a section
+	r, err := Parse("@flour{1%kg}\n\n== header == and more text\n", "")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if r.Steps[0].Section != "" {
+		t.Errorf("expected a step, got section %q", r.Steps[0].Section)
+	}
+}
+
+func TestMultilineMetadata(t *testing.T) {
+	src := `>> title: X
+>> source: an incredibly long provenance
+          spanning two lines
+>> servings: 4
+
+@flour{200%g}
+
+Mix.
+`
+	r, err := Parse(src, "")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if r.Provenance != "an incredibly long provenance spanning two lines" {
+		t.Errorf("provenance = %q", r.Provenance)
+	}
+	if r.Servings != "4" {
+		t.Errorf("servings = %q", r.Servings)
 	}
 }
 
@@ -128,6 +194,60 @@ Mix.
 	}
 }
 
+func TestOptionalAndSome(t *testing.T) {
+	src := `>> title: X
+
+@?thyme
+@milk{}
+@tomatoes{2-3}
+
+Mix.
+`
+	r, err := Parse(src, "")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := []Ingredient{
+		{Name: "thyme", Optional: true},
+		{Name: "milk", Amount: "some"},
+		{Name: "tomatoes", Amount: "2-3"},
+	}
+	for i, w := range want {
+		if r.Ingredients[i] != w {
+			t.Errorf("ingredient[%d] = %+v, want %+v", i, r.Ingredients[i], w)
+		}
+	}
+}
+
+func TestUnclosedBlockComment(t *testing.T) {
+	src := `>> title: X
+
+@flour{200%g}
+
+Start the dough.
+[- forgot to close this comment
+it continues here -] and resume
+Knead.
+`
+	r, err := Parse(src, "")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	// all four lines are one block (no blank lines), so one step
+	if len(r.Steps) != 1 {
+		t.Fatalf("got %d steps, want 1: %+v", len(r.Steps), r.Steps)
+	}
+	want := "forgot to close this comment it continues here"
+	if len(r.Steps[0].Notes) != 1 || r.Steps[0].Notes[0] != want {
+		t.Errorf("notes = %v, want [%q]", r.Steps[0].Notes, want)
+	}
+	for _, frag := range []string{"Start the dough.", "and resume", "Knead."} {
+		if !strings.Contains(r.Steps[0].Text, frag) {
+			t.Errorf("text missing %q: %q", frag, r.Steps[0].Text)
+		}
+	}
+}
+
 func TestFallbackTitle(t *testing.T) {
 	src := "@flour{200%g}\n\nMix it up.\n"
 	r, err := Parse(src, "Easy Flatbread")
@@ -154,7 +274,6 @@ func TestParseErrors(t *testing.T) {
 		t.Error("empty source should error")
 	}
 	if _, err := Parse(">> source: nowhere\n", "x"); err != nil {
-		// fallback title present means it should NOT error
-		t.Log("fallback title accepted, no error (correct)")
+		t.Errorf("fallback title present, should not error: %v", err)
 	}
 }

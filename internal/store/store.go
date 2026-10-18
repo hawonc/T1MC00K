@@ -18,6 +18,40 @@ import (
 // ErrNotFound is returned by Get/Delete when no recipe has the given id.
 var ErrNotFound = errors.New("recipe not found")
 
+// Steps is a recipe's method. It unmarshals both the current []Step form
+// and the legacy []string form, so databases created before structured
+// steps keep working.
+type Steps []parser.Step
+
+func (s *Steps) UnmarshalJSON(b []byte) error {
+	var steps []parser.Step
+	if err := json.Unmarshal(b, &steps); err == nil {
+		*s = steps
+		return nil
+	}
+	var strs []string
+	if err := json.Unmarshal(b, &strs); err == nil {
+		out := make(Steps, len(strs))
+		for i, t := range strs {
+			out[i] = parser.Step{Text: t}
+		}
+		*s = out
+		return nil
+	}
+	return fmt.Errorf("steps: unsupported format")
+}
+
+// Text returns the method as plain text (steps and their notes), e.g. for
+// the full-text index.
+func (s Steps) Text() string {
+	var parts []string
+	for _, st := range s {
+		parts = append(parts, st.Text)
+		parts = append(parts, st.Notes...)
+	}
+	return strings.Join(parts, "\n")
+}
+
 // Recipe is a stored recipe, as returned by the API.
 type Recipe struct {
 	ID          int64               `json:"id"`
@@ -27,7 +61,7 @@ type Recipe struct {
 	Servings    string              `json:"servings,omitempty"`
 	Provenance  string              `json:"provenance,omitempty"`
 	Ingredients []parser.Ingredient `json:"ingredients"`
-	Steps       []string            `json:"steps"`
+	Steps       Steps               `json:"steps"`
 	Source      string              `json:"source"`
 	CreatedAt   time.Time           `json:"created_at"`
 	UpdatedAt   time.Time           `json:"updated_at"`
@@ -137,7 +171,7 @@ func (s *Store) SaveRecipe(r *parser.Recipe) (int64, error) {
 	tagsJSON, _ := json.Marshal(r.Tags)
 	timesJSON, _ := json.Marshal(r.Times)
 	ingJSON, _ := json.Marshal(r.Ingredients)
-	stepsJSON, _ := json.Marshal(r.Steps)
+	stepsJSON, _ := json.Marshal(Steps(r.Steps))
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -331,9 +365,8 @@ func indexFTS(tx *sql.Tx, id int64, r *parser.Recipe) error {
 		ingText.WriteString(ing.Name)
 		ingText.WriteByte(' ')
 	}
-	stepsText := strings.Join(r.Steps, "\n")
 	_, err := tx.Exec(`INSERT INTO recipes_fts (rowid, title, ingredients, steps) VALUES (?, ?, ?, ?)`,
-		id, r.Title, ingText.String(), stepsText)
+		id, r.Title, ingText.String(), Steps(r.Steps).Text())
 	return err
 }
 

@@ -81,6 +81,10 @@
     .actions { font-size: small; }
     .actions a { margin-left: 12px; }
     ol.steps li { margin-bottom: .6rem; }
+    ol.steps blockquote, p.prose blockquote { margin: .4rem 0 .2rem; }
+    h4.section { margin: 1.1rem 0 .4rem; }
+    p.prose { margin: .4rem 0; }
+    blockquote { font-size: .92em; }
     ul.ingredients { list-style-type: none; padding: unset; }
     ul.ingredients li span.amt { color: #aaa; }
     .msg { color: #aaa; font-style: italic; }
@@ -192,8 +196,30 @@ async function showRecipe(id) {
       <li>${esc(i.name)}
         ${i.amount || i.unit ? `<span class="amt">— ${esc([i.amount, i.unit].filter(Boolean).join(' '))}</span>` : ''}
         ${i.note ? `<span class="amt">(${esc(i.note)})</span>` : ''}
+        ${i.optional ? '<span class="amt">(optional)</span>' : ''}
       </li>`).join('');
-    const steps = r.steps.map(s => `<li>${esc(s)}</li>`).join('');
+    // legacy databases served steps as plain strings
+    const steps = (r.steps || []).map(s => typeof s === 'string' ? { text: s } : s);
+    // method: section headers break the list; notes render as blockquotes
+    let method = '', ol = false, section = null;
+    const openOl = () => { if (!ol) { method += '<ol class="steps">'; ol = true; } };
+    const closeOl = () => { if (ol) { method += '</ol>'; ol = false; } };
+    for (const s of steps) {
+      const notes = (s.notes || []).map(n => `<blockquote>${esc(n)}</blockquote>`).join('');
+      if (s.section && s.section !== section) {
+        closeOl();
+        section = s.section;
+        method += `<h4 class="section">${esc(s.section)}</h4>`;
+      }
+      if (s.text_block) {
+        closeOl();
+        method += `<p class="prose">${esc(s.text)}${notes}</p>`;
+      } else {
+        openOl();
+        method += `<li>${esc(s.text)}${notes}</li>`;
+      }
+    }
+    closeOl();
     const bits = [];
     if (r.times?.prep) bits.push('prep ' + r.times.prep);
     if (r.times?.cook) bits.push('cook ' + r.times.cook);
@@ -212,7 +238,7 @@ async function showRecipe(id) {
       ${byline}
       <div class="tagrow">${tagLinks(r.tags)}</div>
       ${r.ingredients.length ? `<h3>Ingredients</h3><ul class="ingredients">${ing}</ul>` : ''}
-      ${r.steps.length ? `<h3>Method</h3><ol class="steps">${steps}</ol>` : ''}
+      ${steps.length ? `<h3>Method</h3>${method}` : ''}
       <h3>Source <span class="helptext">(.cook)</span></h3>
       <pre><code>${esc(r.source)}</code></pre>`;
     $('#back').onclick = e => { e.preventDefault(); $('#q').value = ''; showList(); };
