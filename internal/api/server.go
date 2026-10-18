@@ -33,7 +33,9 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", s.handleHealth)
-	mux.HandleFunc("POST /api/recipes", s.handleUpload)
+	// TODO: add authentication (e.g. basic auth or a session/token check
+	// in handleUpload), then re-enable the upload route:
+	// mux.HandleFunc("POST /api/recipes", s.handleUpload)
 	mux.HandleFunc("GET /api/recipes", s.handleList)
 	mux.HandleFunc("GET /api/recipes/{id}", s.handleGet)
 	mux.HandleFunc("DELETE /api/recipes/{id}", s.handleDelete)
@@ -144,6 +146,9 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		log.Printf("list recipes: %v", err)
 		httpError(w, http.StatusInternalServerError, "failed to list recipes")
 		return
+	}
+	if recipes == nil {
+		recipes = []store.RecipeSummary{} // empty JSON array, not null
 	}
 	writeJSON(w, http.StatusOK, recipes)
 }

@@ -106,8 +106,10 @@
   <div class="tools">
     <input id="q" type="search" placeholder="Search recipes and ingredients…"
            aria-label="Search recipes">
+    <!-- TODO: add auth on the server, then re-enable uploads
     <a href="#" id="pick" title="Upload CookLang files">upload .cook ↪</a>
     <input type="file" id="file" accept=".cook" multiple hidden>
+    -->
   </div>
 
   <div id="content"><p class="msg">Loading…</p></div>
@@ -155,7 +157,7 @@ async function showList(query) {
     if (!recipes.length) {
       content.innerHTML = `<h3 class="blog-filter">Recipes${q}</h3>` +
         (query ? '<p class="msg">No recipes match.</p>'
-               : '<p class="msg">No recipes yet — upload a .cook file to get started.</p>');
+               : '<p class="msg">No recipes yet.</p>');
       return;
     }
     content.innerHTML = `<h3 class="blog-filter">Recipes (${recipes.length})${q}</h3>
@@ -217,6 +219,8 @@ $('#q').addEventListener('keydown', e => {
   if (e.key === 'Enter') showList(e.target.value.trim());
 });
 
+/* Upload UI disabled until the POST /api/recipes route is re-enabled
+   with auth — see internal/api/server.go Routes().
 $('#pick').onclick = e => { e.preventDefault(); $('#file').click(); };
 $('#file').onchange = async () => {
   const files = [...$('#file').files];
@@ -234,6 +238,7 @@ $('#file').onchange = async () => {
   $('#file').value = '';
   showList();
 };
+*/
 
 // keep the list in sync with the search box (back/forward, manual clears)
 $('#q').addEventListener('search', () => {

@@ -28,6 +28,10 @@ Open http://localhost:8090 to upload `.cook` files, browse and search.
 
 ## HTTP API
 
+> **Note:** the upload route (`POST /api/recipes`) is currently commented
+> out in `internal/api/server.go` until authentication is added. The curl
+> examples below will return `405` until it is re-enabled.
+
 | Method   | Path              | Description                                        |
 |----------|-------------------|----------------------------------------------------|
 | `GET`    | `/health`         | Liveness check                                     |
