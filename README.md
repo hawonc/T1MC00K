@@ -1,16 +1,20 @@
 # T1MC00K
 
-A small recipe storage backend. Recipes are written in
-[CookLang](https://cooklang.org) (`.cook` files), parsed on upload, and stored
-in SQLite with a full-text search index over titles, ingredients and method
-text. A single static page (`web/index.html`, embedded into the binary) is
-enough to drive it.
+A read-only recipe library. Recipes live as
+[CookLang](https://cooklang.org) `.cook` files in a directory; on every
+start the app syncs that directory into SQLite (new files are imported,
+changed files re-parsed, vanished files removed) and serves a searchable,
+nicely rendered library. The frontend is a single static page styled after
+Bear Blog, embedded in the binary.
 
 ## Run
 
 ```sh
-go run .                # http://localhost:8090
+go run .        # http://localhost:8090
 ```
+
+Drop `.cook` files into `recipes/` (subdirectories are scanned too) and
+restart the app to pick them up.
 
 Configuration via flags or environment:
 
@@ -18,64 +22,54 @@ Configuration via flags or environment:
 |---------|----------------|---------------|
 | `-addr` | `T1MC00K_ADDR` | `:8090`       |
 | `-db`   | `T1MC00K_DB`   | `recipes.db`  |
+| `-dir`  | `T1MC00K_DIR`  | `recipes`     |
 | `-base` | `T1MC00K_BASE` | `""` (root)   |
 
 `-base` mounts the app under a URL prefix (e.g. `/recipes`) if you ever put
 it behind a reverse proxy; the frontend uses relative URLs so it works
 under any mount point.
 
-Open http://localhost:8090 to upload `.cook` files, browse and search.
-
 ## HTTP API
 
-> **Note:** the upload route (`POST /api/recipes`) is currently commented
-> out in `internal/api/server.go` until authentication is added. The curl
-> examples below will return `405` until it is re-enabled.
+The API is read-only; the recipes directory is the source of truth.
 
-| Method   | Path              | Description                                        |
-|----------|-------------------|----------------------------------------------------|
-| `GET`    | `/health`         | Liveness check                                     |
-| `POST`   | `/api/recipes`    | Upload: multipart (`file` fields, `.cook`) or raw body |
-| `GET`    | `/api/recipes`    | List all recipes (id, title, tags)                 |
-| `GET`    | `/api/recipes/{id}` | Full recipe incl. ingredients, steps, raw source |
-| `DELETE` | `/api/recipes/{id}` | Delete recipe                                   |
-| `GET`    | `/api/search?q=`  | Full-text search (title + ingredients + steps)      |
-
-Examples:
+| Method | Path                | Description                                       |
+|--------|---------------------|---------------------------------------------------|
+| `GET`  | `/health`           | Liveness check                                    |
+| `GET`  | `/api/recipes`      | List all recipes (id, title, tags, created date)  |
+| `GET`  | `/api/recipes/{id}` | Full recipe: ingredients, structured steps, notes, raw source |
+| `GET`  | `/api/search?q=`    | Full-text search (title + ingredients + method + notes) |
 
 ```sh
-# upload one or more files
-curl -X POST localhost:8090/api/recipes \
-  -F "file=@samples/pad-thai.cook" -F "file=@samples/carbonara.cook"
-
-# or pipe raw .cook source
-curl -X POST --data-binary @my-recipe.cook localhost:8090/api/recipes
-
-# search
 curl "localhost:8090/api/search?q=chicken+coconut"
 ```
 
-## What gets stored
+## Recipes directory
 
-From each `.cook` file:
+Each `.cook` file is one recipe:
 
-- `>> title:` → recipe title (falls back to the filename, then the first step)
-- `>> tags:` → cuisine/style tags (also normalized into `tags`/`recipe_tags`
-  tables for future tag filtering)
-- `@ingredient{amount%unit}(note)` lines at the top → structured ingredient list
-- everything after → method steps
-- the original source text is kept verbatim, so nothing is lost
+- `>> title:` → recipe title (falls back to the filename)
+- `>> tags:` → cuisine/style tags, shown as `#tag` links
+- `>> time required:` / `>> prep time:` / `>> cook time:` → shown as a
+  byline; `>> servings:` and `>> source:` round out the subtext
+- `@ingredient{amount%unit}(note)` lines at the top → the ingredient list
+- `== Section ==` headers, `> text` paragraphs, `~{25%minutes}` timers and
+  `@ingredient{2%tbsp}` references render as readable prose
+- `--` line comments and `[- -]` block comments become cook's notes,
+  shown as blockquotes (and indexed for search)
+- the original source text is always one click away
 
-Search uses SQLite FTS5 (`porter unicode61` tokenizer), so `noodle` matches
-`noodles`, multi-word queries are ANDed, and results are ranked by relevance.
+Search uses SQLite FTS5 (`porter unicode61` tokenizer), so `noodle`
+matches `noodles`, multi-word queries are ANDed, and results are ranked by
+relevance with a snippet showing what matched.
 
 ## Layout
 
 ```
-cook.go                       main: flags, embed, graceful shutdown
-internal/parser/cooklang.go   .cook parsing (metadata, ingredients, steps)
-internal/store/store.go       SQLite schema, CRUD, FTS5 index & search
-internal/api/server.go        HTTP handlers
+cook.go                       main: flags, directory sync, shutdown
+recipes/                      the .cook source files (source of truth)
+internal/parser/              cooklang parsing (cooklang-rs semantics)
+internal/store/               SQLite schema, sync, FTS5 search
+internal/api/                 HTTP handlers
 web/index.html                the entire frontend
-samples/*.cook                example recipes
 ```

@@ -111,10 +111,6 @@
   <div class="tools">
     <input id="q" type="search" placeholder="Search recipes and ingredients…"
            aria-label="Search recipes">
-    <!-- TODO: add auth on the server, then re-enable uploads
-    <a href="#" id="pick" title="Upload CookLang files">upload .cook ↪</a>
-    <input type="file" id="file" accept=".cook" multiple hidden>
-    -->
   </div>
 
   <div id="content"><p class="msg">Loading…</p></div>
@@ -162,7 +158,7 @@ async function showList(query) {
     if (!recipes.length) {
       content.innerHTML = `<h3 class="blog-filter">Recipes${q}</h3>` +
         (query ? '<p class="msg">No recipes match.</p>'
-               : '<p class="msg">No recipes yet.</p>');
+               : '<p class="msg">No recipes yet &mdash; drop .cook files into the recipes directory and restart.</p>');
       return;
     }
     content.innerHTML = `<h3 class="blog-filter">Recipes (${recipes.length})${q}</h3>
@@ -232,8 +228,7 @@ async function showRecipe(id) {
     if (provHtml) bits.push(provHtml);
     const byline = bits.length ? `<p class="byline">${bits.join(' &middot; ')}</p>` : '';
     content.innerHTML = `
-      <p class="actions"><a href="#" id="back">&larr; All recipes</a>
-        <a href="#" id="del">delete</a></p>
+      <p class="actions"><a href="#" id="back">&larr; All recipes</a></p>
       <h1>${esc(r.title)}</h1>
       ${byline}
       <div class="tagrow">${tagLinks(r.tags)}</div>
@@ -242,12 +237,6 @@ async function showRecipe(id) {
       <h3>Source <span class="helptext">(.cook)</span></h3>
       <pre><code>${esc(r.source)}</code></pre>`;
     $('#back').onclick = e => { e.preventDefault(); $('#q').value = ''; showList(); };
-    $('#del').onclick = async e => {
-      e.preventDefault();
-      if (!confirm('Delete this recipe?')) return;
-      try { await api('api/recipes/' + id, { method: 'DELETE' }); } catch (err) { alert(err.message); return; }
-      $('#q').value = ''; showList();
-    };
     wireTags(content);
   } catch (e) {
     content.innerHTML = `<p class="error">${esc(e.message)}</p>`;
@@ -258,26 +247,6 @@ $('#q').addEventListener('keydown', e => {
   if (e.key === 'Enter') showList(e.target.value.trim());
 });
 
-/* Upload UI disabled until the POST /api/recipes route is re-enabled
-   with auth — see internal/api/server.go Routes().
-$('#pick').onclick = e => { e.preventDefault(); $('#file').click(); };
-$('#file').onchange = async () => {
-  const files = [...$('#file').files];
-  if (!files.length) return;
-  const fd = new FormData();
-  for (const f of files) fd.append('file', f, f.name);
-  try {
-    const results = await api('api/recipes', { method: 'POST', body: fd });
-    const failed = results.filter(r => r.error);
-    if (failed.length)
-      alert('Failed:\n' + failed.map(f => `${f.filename}: ${f.error}`).join('\n'));
-  } catch (e) {
-    alert('Upload failed: ' + e.message);
-  }
-  $('#file').value = '';
-  showList();
-};
-*/
 
 // keep the list in sync with the search box (back/forward, manual clears)
 $('#q').addEventListener('search', () => {

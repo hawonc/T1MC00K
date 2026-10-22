@@ -84,6 +84,8 @@ type Store struct {
 const schema = `
 CREATE TABLE IF NOT EXISTS recipes (
 	id          INTEGER PRIMARY KEY,
+	path        TEXT NOT NULL DEFAULT '',    -- source file, relative to the recipes dir
+	hash        TEXT NOT NULL DEFAULT '',    -- sha256 of the source file
 	title       TEXT NOT NULL,
 	tags        TEXT NOT NULL DEFAULT '[]',      -- JSON array of tag strings
 	times       TEXT NOT NULL DEFAULT '{}',      -- JSON: {total, prep, cook}
@@ -147,6 +149,8 @@ func migrate(db *sql.DB) error {
 		{"times", `ALTER TABLE recipes ADD COLUMN times TEXT NOT NULL DEFAULT '{}'`},
 		{"servings", `ALTER TABLE recipes ADD COLUMN servings TEXT NOT NULL DEFAULT ''`},
 		{"provenance", `ALTER TABLE recipes ADD COLUMN provenance TEXT NOT NULL DEFAULT ''`},
+		{"path", `ALTER TABLE recipes ADD COLUMN path TEXT NOT NULL DEFAULT ''`},
+		{"hash", `ALTER TABLE recipes ADD COLUMN hash TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, m := range add {
 		var name string
@@ -165,9 +169,9 @@ func migrate(db *sql.DB) error {
 // Close closes the underlying database.
 func (s *Store) Close() error { return s.db.Close() }
 
-// SaveRecipe stores a parsed recipe (insert or update) and refreshes the
-// search index and tag tables.
-func (s *Store) SaveRecipe(r *parser.Recipe) (int64, error) {
+// upsertRecipe stores a parsed recipe under its source path (inserting
+// or updating) and refreshes the search index and tag tables.
+func (s *Store) upsertRecipe(path, hash string, r *parser.Recipe) (int64, error) {
 	tagsJSON, _ := json.Marshal(r.Tags)
 	timesJSON, _ := json.Marshal(r.Times)
 	ingJSON, _ := json.Marshal(r.Ingredients)
@@ -179,15 +183,34 @@ func (s *Store) SaveRecipe(r *parser.Recipe) (int64, error) {
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`
-		INSERT INTO recipes (title, tags, times, servings, provenance, ingredients, steps, source)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Title, string(tagsJSON), string(timesJSON), r.Servings, r.Provenance, string(ingJSON), string(stepsJSON), r.Source)
-	if err != nil {
-		return 0, fmt.Errorf("insert recipe: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
+	var id int64
+	err = tx.QueryRow(`SELECT id FROM recipes WHERE path = ?`, path).Scan(&id)
+	switch {
+	case err == nil:
+		_, err = tx.Exec(`UPDATE recipes SET
+				title = ?, tags = ?, times = ?, servings = ?, provenance = ?,
+				ingredients = ?, steps = ?, source = ?, hash = ?,
+				updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+			WHERE id = ?`,
+			r.Title, string(tagsJSON), string(timesJSON), r.Servings, r.Provenance,
+			string(ingJSON), string(stepsJSON), r.Source, hash, id)
+		if err != nil {
+			return 0, fmt.Errorf("update recipe: %w", err)
+		}
+	case isNoRows(err):
+		res, err := tx.Exec(`INSERT INTO recipes
+				(path, hash, title, tags, times, servings, provenance, ingredients, steps, source)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			path, hash, r.Title, string(tagsJSON), string(timesJSON), r.Servings, r.Provenance,
+			string(ingJSON), string(stepsJSON), r.Source)
+		if err != nil {
+			return 0, fmt.Errorf("insert recipe: %w", err)
+		}
+		id, err = res.LastInsertId()
+		if err != nil {
+			return 0, err
+		}
+	default:
 		return 0, err
 	}
 
@@ -237,26 +260,25 @@ func (s *Store) ListRecipes() ([]RecipeSummary, error) {
 	return out, rows.Err()
 }
 
-// DeleteRecipe removes a recipe, its tag links and its search entries.
-func (s *Store) DeleteRecipe(id int64) error {
+// deleteByID removes a recipe, its tag links and its search entries.
+func (s *Store) deleteByID(id int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`DELETE FROM recipes WHERE id = ?`, id)
-	if err != nil {
+	if _, err := tx.Exec(`DELETE FROM recipes WHERE id = ?`, id); err != nil {
 		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
 	}
 	if _, err := tx.Exec(`DELETE FROM recipes_fts WHERE rowid = ?`, id); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
+
+// isNoRows reports whether err is the "no rows" case.
+func isNoRows(err error) bool { return errors.Is(err, sql.ErrNoRows) }
 
 // Search runs a full-text query against titles, ingredients and steps,
 // ranked by relevance (FTS5 bm25), and returns matching recipe summaries

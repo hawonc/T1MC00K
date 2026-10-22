@@ -1,5 +1,6 @@
-// T1MC00K is a standalone recipe storage app: CookLang (.cook) files in, a
-// searchable recipe library out.
+// T1MC00K is a standalone recipe app: a directory of CookLang (.cook)
+// files in, a searchable, nicely rendered library out. The directory is
+// the source of truth — the app syncs it into SQLite on every start.
 package main
 
 import (
@@ -27,6 +28,7 @@ func main() {
 	var (
 		addr = flag.String("addr", envOr("T1MC00K_ADDR", ":8090"), "listen address")
 		db   = flag.String("db", envOr("T1MC00K_DB", "recipes.db"), "path to the SQLite database")
+		dir  = flag.String("dir", envOr("T1MC00K_DIR", "recipes"), "directory of .cook source files (synced on start)")
 		base = flag.String("base", envOr("T1MC00K_BASE", ""), `URL prefix to mount under, e.g. "/recipes" (empty = root)`)
 	)
 	flag.Parse()
@@ -36,6 +38,24 @@ func main() {
 		log.Fatalf("open store: %v", err)
 	}
 	defer st.Close()
+
+	// Pull in the .cook sources: new files are imported, changed files
+	// re-parsed, vanished files removed.
+	rep, err := st.SyncDir(*dir)
+	if err != nil {
+		log.Fatalf("sync %s: %v", *dir, err)
+	}
+	log.Printf("synced %s: %d added, %d updated, %d removed",
+		*dir, len(rep.Added), len(rep.Updated), len(rep.Removed))
+	for _, f := range rep.Added {
+		log.Printf("  + %s", f)
+	}
+	for _, f := range rep.Updated {
+		log.Printf("  ~ %s", f)
+	}
+	for _, f := range rep.Removed {
+		log.Printf("  - %s", f)
+	}
 
 	static, err := fs.Sub(webFS, "web")
 	if err != nil {
