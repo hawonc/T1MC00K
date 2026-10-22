@@ -37,8 +37,10 @@
 {{end}}
 {{end}}
 
-<h3>Source <span class="helptext">(.cook)</span></h3>
-<pre><code>{{.Recipe.Source}}</code></pre>
+<details class="src">
+  <summary>Source <span class="helptext">(.cook)</span></summary>
+  <pre><code>{{.Recipe.Source}}</code></pre>
+</details>
 {{end}}
 
 {{template "layout" .}}

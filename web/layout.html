@@ -84,6 +84,13 @@
     ul.ingredients { list-style-type: none; padding: unset; }
     ul.ingredients li span.amt { color: #aaa; }
     .tagrow { margin: .3rem 0 1rem; }
+    details.src { margin-top: 1.2rem; }
+    details.src summary {
+      cursor: pointer; color: #eee; font-weight: bold;
+      margin-bottom: .4rem;
+    }
+    details.src summary::marker { color: #8cc2dd; }
+    details.src[open] summary { margin-bottom: .6rem; }
     .msg { color: #aaa; font-style: italic; }
     @media (max-width: 500px) {
       ul.blog-posts li { display: block; }
