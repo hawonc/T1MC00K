@@ -1,6 +1,7 @@
 // T1MC00K is a standalone recipe app: a directory of CookLang (.cook)
 // files in, a searchable, nicely rendered library out. The directory is
-// the source of truth — the app syncs it into SQLite on every start.
+// the source of truth — the app syncs it into SQLite on every start and
+// re-syncs periodically (daily by default).
 package main
 
 import (
@@ -26,10 +27,11 @@ var webFS embed.FS
 
 func main() {
 	var (
-		addr = flag.String("addr", envOr("T1MC00K_ADDR", ":8090"), "listen address")
-		db   = flag.String("db", envOr("T1MC00K_DB", "recipes.db"), "path to the SQLite database")
-		dir  = flag.String("dir", envOr("T1MC00K_DIR", "recipes"), "directory of .cook source files (synced on start)")
-		base = flag.String("base", envOr("T1MC00K_BASE", ""), `URL prefix to mount under, e.g. "/recipes" (empty = root)`)
+		addr   = flag.String("addr", envOr("T1MC00K_ADDR", ":8090"), "listen address")
+		db     = flag.String("db", envOr("T1MC00K_DB", "recipes.db"), "path to the SQLite database")
+		dir    = flag.String("dir", envOr("T1MC00K_DIR", "recipes"), "directory of .cook source files")
+		resync = flag.Duration("resync", envDurationOr("T1MC00K_RESYNC", 24*time.Hour), "how often to re-sync the recipes directory (0 = only on start)")
+		base   = flag.String("base", envOr("T1MC00K_BASE", ""), `URL prefix to mount under, e.g. "/recipes" (empty = root)`)
 	)
 	flag.Parse()
 
@@ -41,20 +43,24 @@ func main() {
 
 	// Pull in the .cook sources: new files are imported, changed files
 	// re-parsed, vanished files removed.
-	rep, err := st.SyncDir(*dir)
-	if err != nil {
-		log.Fatalf("sync %s: %v", *dir, err)
-	}
-	log.Printf("synced %s: %d added, %d updated, %d removed",
-		*dir, len(rep.Added), len(rep.Updated), len(rep.Removed))
-	for _, f := range rep.Added {
-		log.Printf("  + %s", f)
-	}
-	for _, f := range rep.Updated {
-		log.Printf("  ~ %s", f)
-	}
-	for _, f := range rep.Removed {
-		log.Printf("  - %s", f)
+	syncAndLog(st, *dir)
+
+	// Re-sync periodically so file edits show up without a restart.
+	done := make(chan struct{})
+	if *resync > 0 {
+		go func() {
+			ticker := time.NewTicker(*resync)
+			defer ticker.Stop()
+			log.Printf("resyncing %s every %s", *dir, *resync)
+			for {
+				select {
+				case <-ticker.C:
+					syncAndLog(st, *dir)
+				case <-done:
+					return
+				}
+			}
+		}()
 	}
 
 	static, err := fs.Sub(webFS, "web")
@@ -81,6 +87,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
+	close(done) // stop the resync loop
 
 	log.Println("shutting down...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -89,6 +96,29 @@ func main() {
 		log.Printf("shutdown: %v", err)
 	}
 	log.Println("server closed")
+}
+
+// syncAndLog runs one directory sync and reports what changed.
+func syncAndLog(st *store.Store, dir string) {
+	rep, err := st.SyncDir(dir)
+	if err != nil {
+		log.Printf("sync %s: %v", dir, err)
+		return
+	}
+	if len(rep.Added)+len(rep.Updated)+len(rep.Removed) == 0 {
+		return // quiet when nothing changed
+	}
+	log.Printf("synced %s: %d added, %d updated, %d removed",
+		dir, len(rep.Added), len(rep.Updated), len(rep.Removed))
+	for _, f := range rep.Added {
+		log.Printf("  + %s", f)
+	}
+	for _, f := range rep.Updated {
+		log.Printf("  ~ %s", f)
+	}
+	for _, f := range rep.Removed {
+		log.Printf("  - %s", f)
+	}
 }
 
 // mount makes the whole app reachable under a URL prefix. An empty or "/"
@@ -110,6 +140,16 @@ func mount(h http.Handler, prefix string) http.Handler {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envDurationOr(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+		log.Printf("invalid %s=%q, using %s", key, v, fallback)
 	}
 	return fallback
 }

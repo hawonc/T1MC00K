@@ -13,17 +13,18 @@ Bear Blog, embedded in the binary.
 go run .        # http://localhost:8090
 ```
 
-Drop `.cook` files into `recipes/` (subdirectories are scanned too) and
-restart the app to pick them up.
+Drop `.cook` files into `recipes/` (subdirectories are scanned too) —
+they are picked up on start and re-synced daily without a restart.
 
 Configuration via flags or environment:
 
-| Flag    | Env            | Default       |
-|---------|----------------|---------------|
-| `-addr` | `T1MC00K_ADDR` | `:8090`       |
-| `-db`   | `T1MC00K_DB`   | `recipes.db`  |
-| `-dir`  | `T1MC00K_DIR`  | `recipes`     |
-| `-base` | `T1MC00K_BASE` | `""` (root)   |
+| Flag       | Env              | Default      |
+|------------|------------------|--------------|
+| `-addr`    | `T1MC00K_ADDR`   | `:8090`      |
+| `-db`      | `T1MC00K_DB`     | `recipes.db` |
+| `-dir`     | `T1MC00K_DIR`    | `recipes`    |
+| `-resync`  | `T1MC00K_RESYNC` | `24h` (0 = only on start) |
+| `-base`    | `T1MC00K_BASE`   | `""` (root)  |
 
 `-base` mounts the app under a URL prefix (e.g. `/recipes`) if you ever put
 it behind a reverse proxy; the frontend uses relative URLs so it works
