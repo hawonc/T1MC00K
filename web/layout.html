@@ -1,0 +1,111 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A recipe box: CookLang recipes, searchable by ingredient.">
+  <title>{{block "title" .}}T1MC00K{{end}}</title>
+  <style>
+    /* ---- Bear Blog "original" look ----------------------------------- */
+    body {
+      font-family: Verdana, sans-serif;
+      margin: auto;
+      padding: 20px;
+      max-width: 720px;
+      text-align: left;
+      background-color: #1d1f27;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      line-height: 1.5;
+      color: #c9d1d9;
+    }
+    h1, h2, h3, h4, h5, h6, strong, b { color: #eee; }
+    a { color: #8cc2dd; }
+    a:visited { color: #8b6fcb; }
+    .title { text-decoration: none; border: 0; }
+    .title h1 { font-size: 24px; margin: 19.92px 0 19.92px 0; }
+    nav a { margin-right: 10px; }
+    input, button {
+      background-color: #252525;
+      color: #ddd;
+      font-size: 16px;
+    }
+    content { line-height: 1.6; display: block; }
+    table { width: 100%; }
+    table, th, td {
+      border: 1px solid;
+      border-collapse: collapse;
+      border-color: #c9d1d9;
+      padding: 5px;
+    }
+    code { padding: 2px 5px; color: #f8f8f2; background-color: #282a36; }
+    pre code {
+      display: block;
+      padding: 20px;
+      white-space: pre-wrap;
+      font-size: 14px;
+      overflow-x: auto;
+      text-wrap: nowrap;
+    }
+    blockquote {
+      border-left: 1px solid #999;
+      color: #ccc;
+      padding-left: 20px;
+      font-style: italic;
+    }
+    footer { padding: 25px; text-align: center; }
+    .helptext { color: #aaa; font-size: small; }
+    p.byline { font-style: italic; }
+    ul.blog-posts { list-style-type: none; padding: unset; }
+    ul.blog-posts li { display: flex; margin-bottom: 10px; }
+    ul.blog-posts li span { flex: 0 0 130px; }
+    a.blog-tags { line-height: 2; margin-right: 12px; }
+    .skip-link {
+      position: absolute; top: 5; transform: translateY(-600%);
+      transition: transform 0.5s; background-color: #1d1f27; padding: 6px;
+    }
+    .skip-link:focus { transform: translateY(0%); }
+
+    /* ---- app-specific, in the same spirit ---------------------------- */
+    .tools { margin-bottom: 1.2rem; }
+    .tools input[type=search] {
+      width: 100%; max-width: 26em; padding: 4px 8px; border: 1px solid #444;
+    }
+    .tools button {
+      border: 1px solid #444; border-radius: 0; padding: 4px 12px; margin-left: 8px;
+    }
+    .snippet { color: #aaa; font-size: small; font-style: italic; margin-left: 130px; }
+    .actions { font-size: small; }
+    ol.steps li { margin-bottom: .6rem; }
+    ol.steps blockquote, p.prose blockquote { margin: .4rem 0 .2rem; font-size: .92em; }
+    h4.section { margin: 1.1rem 0 .4rem; }
+    p.prose { margin: .4rem 0; }
+    ul.ingredients { list-style-type: none; padding: unset; }
+    ul.ingredients li span.amt { color: #aaa; }
+    .tagrow { margin: .3rem 0 1rem; }
+    .msg { color: #aaa; font-style: italic; }
+    @media (max-width: 500px) {
+      ul.blog-posts li { display: block; }
+      .snippet { margin-left: 0; }
+    }
+  </style>
+</head>
+
+<body>
+<header>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <a href="{{.Base}}/" class="title"><h1>T1MC00K</h1></a>
+  <nav>
+    <a href="{{.Base}}/">Recipes</a>
+  </nav>
+</header>
+
+<main id="main-content" aria-live="polite">
+{{template "content" .}}
+</main>
+
+<footer><small>recipes are stored as CookLang source</small></footer>
+</body>
+
+</html>{{end}}

@@ -1,0 +1,44 @@
+{{define "title"}}{{.Recipe.Title}} | T1MC00K{{end}}
+{{define "content"}}
+<p class="actions"><a href="{{.Base}}/">&larr; All recipes</a></p>
+
+<h1>{{.Recipe.Title}}</h1>
+
+{{with .Byline}}
+<p class="byline">{{range $i, $p := .}}{{if $i}} &middot; {{end}}{{if $p.URL}}<a href="{{$p.URL}}" rel="noopener">{{$p.Text}}</a>{{else}}{{$p.Text}}{{end}}{{end}}</p>
+{{end}}
+
+<div class="tagrow">{{range .Recipe.Tags}}<a class="blog-tags" href="{{$.Base}}/?q={{. | urlquery}}">#{{lower .}}</a>{{end}}</div>
+
+{{with .Recipe.Ingredients}}
+<h3>Ingredients</h3>
+<ul class="ingredients">
+  {{range .}}
+  <li>{{.Name}}
+    {{if or .Amount .Unit}}<span class="amt">&mdash; {{.Amount}}{{if .Unit}} {{.Unit}}{{end}}</span>{{end}}
+    {{if .Note}}<span class="amt">({{.Note}})</span>{{end}}
+    {{if .Optional}}<span class="amt">(optional)</span>{{end}}
+  </li>
+  {{end}}
+</ul>
+{{end}}
+
+{{with .Method}}
+<h3>Method</h3>
+{{range .}}
+{{with .Section}}<h4 class="section">{{.}}</h4>{{end}}
+{{if .Prose}}
+<p class="prose">{{.Text}}{{range .Notes}}<blockquote>{{.}}</blockquote>{{end}}</p>
+{{else}}
+<ol class="steps">
+  {{range .Steps}}<li>{{.Text}}{{range .Notes}}<blockquote>{{.}}</blockquote>{{end}}</li>{{end}}
+</ol>
+{{end}}
+{{end}}
+{{end}}
+
+<h3>Source <span class="helptext">(.cook)</span></h3>
+<pre><code>{{.Recipe.Source}}</code></pre>
+{{end}}
+
+{{template "layout" .}}

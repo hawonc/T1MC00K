@@ -4,8 +4,12 @@ A read-only recipe library. Recipes live as
 [CookLang](https://cooklang.org) `.cook` files in a directory; on every
 start the app syncs that directory into SQLite (new files are imported,
 changed files re-parsed, vanished files removed) and serves a searchable,
-nicely rendered library. The frontend is a single static page styled after
-Bear Blog, embedded in the binary.
+nicely rendered library.
+
+The frontend follows the Bear Blog way: every page is server-rendered
+HTML with real URLs — no JavaScript, no external assets, one inline
+stylesheet — and a strict Content-Security-Policy to prove it
+(`default-src 'none'`). A read-only JSON API sits alongside for scripts.
 
 ## Run
 
@@ -30,9 +34,16 @@ Configuration via flags or environment:
 it behind a reverse proxy; the frontend uses relative URLs so it works
 under any mount point.
 
-## HTTP API
+## HTTP surface
 
-The API is read-only; the recipes directory is the source of truth.
+Pages (HTML, no JavaScript required):
+
+| Method | Path                | Description                                  |
+|--------|---------------------|----------------------------------------------|
+| `GET`  | `/`                 | All recipes; `/?q=terms` for full-text search |
+| `GET`  | `/recipes/{id}`     | One recipe, fully rendered                   |
+
+JSON API (read-only; the recipes directory is the source of truth):
 
 | Method | Path                | Description                                       |
 |--------|---------------------|---------------------------------------------------|
@@ -71,6 +82,7 @@ cook.go                       main: flags, directory sync, shutdown
 recipes/                      the .cook source files (source of truth)
 internal/parser/              cooklang parsing (cooklang-rs semantics)
 internal/store/               SQLite schema, sync, FTS5 search
-internal/api/                 HTTP handlers
-web/index.html                the entire frontend
+internal/api/                 HTML pages (html/template) + JSON API
+web/layout.html               page shell + Bear Blog CSS (embedded)
+web/{home,recipe,error}.html  page templates (embedded)
 ```

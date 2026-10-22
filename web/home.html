@@ -1,0 +1,38 @@
+{{define "content"}}
+<div class="tools">
+  <form action="{{.Base}}/" method="get" role="search">
+    <input type="search" name="q" value="{{.Query}}"
+           placeholder="Search recipes and ingredients…" aria-label="Search recipes">
+    <button type="submit">Search</button>
+  </form>
+</div>
+
+{{if .Query}}
+<h3 class="blog-filter">Recipes &mdash; &ldquo;{{.Query}}&rdquo; ({{len .Recipes}})</h3>
+{{else}}
+<h3 class="blog-filter">Recipes ({{len .Recipes}})</h3>
+{{end}}
+
+{{if not .Recipes}}
+{{if .Query}}
+<p class="msg">No recipes match.</p>
+{{else}}
+<p class="msg">No recipes yet &mdash; drop .cook files into the recipes directory.</p>
+{{end}}
+{{else}}
+<ul class="blog-posts">
+  {{range .Recipes}}
+  <li>
+    <span><i><time datetime="{{.CreatedAt}}">{{dateOnly .CreatedAt}}</time></i></span>
+    <a href="{{$.Base}}/recipes/{{.ID}}">{{.Title}}</a>
+  </li>
+  {{if .Snippet}}<li class="snippet">{{.Snippet}}</li>{{end}}
+  {{end}}
+</ul>
+{{if not .Query}}
+<div>{{range allTags .Recipes}}<a class="blog-tags" href="{{$.Base}}/?q={{. | urlquery}}">#{{lower .}}</a>{{end}}</div>
+{{end}}
+{{end}}
+{{end}}
+
+{{template "layout" .}}

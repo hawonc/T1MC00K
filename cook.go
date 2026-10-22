@@ -68,7 +68,12 @@ func main() {
 		log.Fatalf("embed web: %v", err)
 	}
 
-	handler := mount(api.New(st, static).Routes(), *base)
+	app, err := api.New(st, static)
+	if err != nil {
+		log.Fatalf("templates: %v", err)
+	}
+
+	handler := mount(app.Routes(), *base)
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -123,12 +128,14 @@ func syncAndLog(st *store.Store, dir string) {
 
 // mount makes the whole app reachable under a URL prefix. An empty or "/"
 // prefix returns the handler unchanged. Requests to the bare prefix are
-// redirected to prefix/ so relative URLs in the frontend resolve correctly.
+// redirected to prefix/ so relative URLs resolve correctly. The prefix is
+// also recorded in the request context for link generation.
 func mount(h http.Handler, prefix string) http.Handler {
 	prefix = "/" + strings.Trim(prefix, "/")
 	if prefix == "/" {
 		return h
 	}
+	h = api.WithBase(prefix, h)
 	root := http.NewServeMux()
 	root.Handle(prefix+"/", http.StripPrefix(prefix, h))
 	root.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
